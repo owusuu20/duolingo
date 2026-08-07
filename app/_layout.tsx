@@ -25,5 +25,11 @@ export default function RootLayout() {
     return null;
   }
 
-  return <Stack screenOptions={{ contentStyle: { backgroundColor: "#FFFFFF" } }} />;
+  return (
+    <Stack screenOptions={{ contentStyle: { backgroundColor: "#FFFFFF" } }}>
+      <Stack.Screen name="index" options={{ headerShown: false }} />
+      <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+      <Stack.Screen name="design-system" options={{ title: "Design System" }} />
+    </Stack>
+  );
 }
