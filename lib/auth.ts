@@ -1,18 +1,42 @@
-/**
- * Auth helpers for email verification.
- * Placeholder until Clerk email verification is wired up.
- */
-export async function verifyEmailCode(
-  code: string,
-  _email: string,
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  // Simulate a network round-trip to an auth service.
-  await new Promise((resolve) => setTimeout(resolve, 250));
+type ClerkLikeError = {
+  message?: string;
+  longMessage?: string;
+  errors?: Array<{
+    message?: string;
+    longMessage?: string;
+  }>;
+};
 
-  if (!/^\d{6}$/.test(code)) {
-    return { ok: false, error: "Enter a valid 6-digit code." };
+export function getClerkErrorMessage(
+  error: unknown,
+  fallback = "Something went wrong. Please try again.",
+): string {
+  if (!error) {
+    return fallback;
   }
 
-  // Accept any well-formed 6-digit code in this teaching build.
-  return { ok: true };
+  if (typeof error === "string" && error.trim()) {
+    return error;
+  }
+
+  const clerkError = error as ClerkLikeError;
+  const nested = clerkError.errors?.[0];
+
+  if (nested?.longMessage) {
+    return nested.longMessage;
+  }
+
+  if (nested?.message) {
+    return nested.message;
+  }
+
+  if (clerkError.longMessage) {
+    return clerkError.longMessage;
+  }
+
+  if (clerkError.message) {
+    return clerkError.message;
+  }
+
+  return fallback;
 }

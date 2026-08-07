@@ -1,7 +1,10 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useSignIn, useSignUp } from "@clerk/expo";
+import { useSSO } from "@clerk/expo/experimental";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
+  ActivityIndicator,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -15,6 +18,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { VerificationModal } from "@/components/VerificationModal";
 import { images } from "@/constants/images";
+import { getClerkErrorMessage } from "@/lib/auth";
+import { createNavigateAfterAuth } from "@/lib/clerk";
 import { colors } from "@/theme";
 
 type AuthMode = "sign-up" | "sign-in";
@@ -125,13 +130,24 @@ function AuthField({
   );
 }
 
-function PrimaryButton({ label, onPress }: { label: string; onPress: () => void }) {
+function PrimaryButton({
+  label,
+  onPress,
+  loading = false,
+}: {
+  label: string;
+  onPress: () => void;
+  loading?: boolean;
+}) {
   return (
     <TouchableOpacity
       activeOpacity={0.85}
       onPress={onPress}
+      disabled={loading}
+      accessibilityState={{ disabled: loading, busy: loading }}
       className="h-14 w-full items-center justify-center rounded-2xl bg-lingua-deep-purple"
       style={{
+        opacity: loading ? 0.75 : 1,
         shadowColor: colors.brand.deepPurple,
         shadowOffset: { width: 0, height: 6 },
         shadowOpacity: 0.28,
@@ -139,8 +155,24 @@ function PrimaryButton({ label, onPress }: { label: string; onPress: () => void 
         elevation: 6,
       }}
     >
-      <Text className="font-poppins-semibold text-[17px] text-white">{label}</Text>
+      {loading ? (
+        <ActivityIndicator color="#FFFFFF" />
+      ) : (
+        <Text className="font-poppins-semibold text-[17px] text-white">{label}</Text>
+      )}
     </TouchableOpacity>
+  );
+}
+
+function AuthError({ message }: { message: string | null }) {
+  if (!message) {
+    return null;
+  }
+
+  return (
+    <Text className="font-poppins text-[13px] text-error" accessibilityLiveRegion="polite">
+      {message}
+    </Text>
   );
 }
 
@@ -171,19 +203,33 @@ function SignUpContent({
   email,
   password,
   passwordVisible,
+  error,
+  loading,
+  googleLoading,
+  appleLoading,
   onEmailChange,
   onPasswordChange,
   onTogglePassword,
   onSubmit,
+  onGooglePress,
+  onApplePress,
 }: {
   email: string;
   password: string;
   passwordVisible: boolean;
+  error: string | null;
+  loading: boolean;
+  googleLoading: boolean;
+  appleLoading: boolean;
   onEmailChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
   onTogglePassword: () => void;
   onSubmit: () => void;
+  onGooglePress: () => void;
+  onApplePress: () => void;
 }) {
+  const socialBusy = googleLoading || appleLoading || loading;
+
   return (
     <>
       <Text className="mt-2 font-poppins-bold text-[28px] leading-[36px] text-text-primary">
@@ -229,8 +275,68 @@ function SignUpContent({
           autoComplete="new-password"
           textContentType="newPassword"
         />
-        <PrimaryButton label="Create Account" onPress={onSubmit} />
+        <AuthError message={error} />
+        <PrimaryButton label="Create Account" onPress={onSubmit} loading={loading} />
       </View>
+
+      <View className="mt-6 flex-row items-center gap-3">
+        <View className="divider flex-1" />
+        <Text className="font-poppins text-[13px] text-text-secondary">or continue with</Text>
+        <View className="divider flex-1" />
+      </View>
+
+      <View className="mt-5 gap-3">
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={onGooglePress}
+          disabled={socialBusy}
+          accessibilityRole="button"
+          accessibilityLabel="Continue with Google"
+          accessibilityState={{ disabled: socialBusy, busy: googleLoading }}
+          className="relative h-14 w-full items-center justify-center rounded-2xl border border-border bg-background"
+          style={{ opacity: googleLoading ? 0.75 : 1 }}
+        >
+          {googleLoading ? (
+            <ActivityIndicator color={colors.brand.deepPurple} />
+          ) : (
+            <>
+              <View className="absolute left-5">
+                <Ionicons name="logo-google" size={22} color="#4285F4" />
+              </View>
+              <Text className="font-poppins-medium text-[15px] text-text-primary">
+                Continue with Google
+              </Text>
+            </>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={onApplePress}
+          disabled={socialBusy}
+          accessibilityRole="button"
+          accessibilityLabel="Continue with Apple"
+          accessibilityState={{ disabled: socialBusy, busy: appleLoading }}
+          className="relative h-14 w-full items-center justify-center rounded-2xl border border-border bg-background"
+          style={{ opacity: appleLoading ? 0.75 : 1 }}
+        >
+          {appleLoading ? (
+            <ActivityIndicator color={colors.brand.deepPurple} />
+          ) : (
+            <>
+              <View className="absolute left-5">
+                <Ionicons name="logo-apple" size={22} color="#000000" />
+              </View>
+              <Text className="font-poppins-medium text-[15px] text-text-primary">
+                Continue with Apple
+              </Text>
+            </>
+          )}
+        </TouchableOpacity>
+      </View>
+
+      {/* Required for Clerk bot protection on sign-up */}
+      <View nativeID="clerk-captcha" />
 
       <AuthFooter
         prompt="Already have an account?"
@@ -245,6 +351,8 @@ function SignInContent({
   email,
   password,
   passwordVisible,
+  error,
+  loading,
   onEmailChange,
   onPasswordChange,
   onTogglePassword,
@@ -253,6 +361,8 @@ function SignInContent({
   email: string;
   password: string;
   passwordVisible: boolean;
+  error: string | null;
+  loading: boolean;
   onEmailChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
   onTogglePassword: () => void;
@@ -307,7 +417,8 @@ function SignInContent({
           textContentType="password"
         />
 
-        <PrimaryButton label="Log In" onPress={onSubmit} />
+        <AuthError message={error} />
+        <PrimaryButton label="Log In" onPress={onSubmit} loading={loading} />
       </View>
 
       <AuthFooter
@@ -320,13 +431,228 @@ function SignInContent({
 }
 
 export function AuthScreen({ mode }: AuthScreenProps) {
+  const router = useRouter();
+  const navigateAfterAuth = createNavigateAfterAuth(router);
+  const { signUp, errors: signUpErrors, fetchStatus: signUpFetchStatus } = useSignUp();
+  const { signIn, errors: signInErrors, fetchStatus: signInFetchStatus } = useSignIn();
+  const { startSSOFlow } = useSSO();
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [showVerification, setShowVerification] = useState(false);
+  const [verificationKind, setVerificationKind] = useState<"sign-up" | "client-trust">(
+    "sign-up",
+  );
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [appleLoading, setAppleLoading] = useState(false);
 
-  function handlePrimaryPress() {
+  const clerkFieldError =
+    mode === "sign-up"
+      ? signUpErrors.fields.emailAddress?.message ||
+        signUpErrors.fields.password?.message ||
+        signUpErrors.fields.code?.message
+      : signInErrors.fields.identifier?.message ||
+        signInErrors.fields.password?.message ||
+        signInErrors.fields.code?.message;
+
+  const displayedError = error ?? clerkFieldError ?? null;
+  const isBusy =
+    loading ||
+    googleLoading ||
+    appleLoading ||
+    signUpFetchStatus === "fetching" ||
+    signInFetchStatus === "fetching";
+
+  async function handleSignUp() {
+    const { error: passwordError } = await signUp.password({
+      emailAddress: email.trim(),
+      password,
+    });
+
+    if (passwordError) {
+      setError(getClerkErrorMessage(passwordError, "Unable to create your account."));
+      return;
+    }
+
+    const { error: sendError } = await signUp.verifications.sendEmailCode();
+    if (sendError) {
+      setError(getClerkErrorMessage(sendError, "Unable to send verification code."));
+      return;
+    }
+
+    setVerificationKind("sign-up");
     setShowVerification(true);
+  }
+
+  async function handleSignIn() {
+    const { error: passwordError } = await signIn.password({
+      emailAddress: email.trim(),
+      password,
+    });
+
+    if (passwordError) {
+      setError(getClerkErrorMessage(passwordError, "Invalid email or password."));
+      return;
+    }
+
+    if (signIn.status === "complete") {
+      await signIn.finalize({ navigate: navigateAfterAuth });
+      return;
+    }
+
+    if (signIn.status === "needs_client_trust") {
+      const emailFactor = signIn.supportedSecondFactors?.find(
+        (factor) => factor.strategy === "email_code",
+      );
+
+      if (emailFactor) {
+        const { error: sendError } = await signIn.mfa.sendEmailCode();
+        if (sendError) {
+          setError(getClerkErrorMessage(sendError, "Unable to send verification code."));
+          return;
+        }
+
+        setVerificationKind("client-trust");
+        setShowVerification(true);
+        return;
+      }
+    }
+
+    if (signIn.status === "needs_second_factor") {
+      setError("Additional verification is required for this account.");
+      return;
+    }
+
+    setError("Unable to complete sign in. Please try again.");
+  }
+
+  async function handlePrimaryPress() {
+    if (isBusy) {
+      return;
+    }
+
+    setError(null);
+    setLoading(true);
+
+    try {
+      if (mode === "sign-up") {
+        await handleSignUp();
+        return;
+      }
+
+      await handleSignIn();
+    } catch (err) {
+      setError(
+        getClerkErrorMessage(
+          err,
+          mode === "sign-up"
+            ? "Unable to create your account. Please try again."
+            : "Unable to sign in. Please try again.",
+        ),
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleGooglePress() {
+    if (isBusy) {
+      return;
+    }
+
+    setError(null);
+    setGoogleLoading(true);
+
+    try {
+      const { createdSessionId } = await startSSOFlow({
+        strategy: "oauth_google",
+      });
+
+      if (createdSessionId) {
+        router.replace("/");
+      }
+    } catch (err) {
+      setError(getClerkErrorMessage(err, "Google sign-in failed. Please try again."));
+    } finally {
+      setGoogleLoading(false);
+    }
+  }
+
+  async function handleApplePress() {
+    if (isBusy) {
+      return;
+    }
+
+    setError(null);
+    setAppleLoading(true);
+
+    try {
+      const { createdSessionId } = await startSSOFlow({
+        strategy: "oauth_apple",
+      });
+
+      if (createdSessionId) {
+        router.replace("/");
+      }
+    } catch (err) {
+      setError(getClerkErrorMessage(err, "Apple sign-in failed. Please try again."));
+    } finally {
+      setAppleLoading(false);
+    }
+  }
+
+  async function handleVerifyCode(code: string) {
+    try {
+      if (verificationKind === "sign-up") {
+        const { error: verifyError } = await signUp.verifications.verifyEmailCode({
+          code,
+        });
+
+        if (verifyError) {
+          return {
+            ok: false as const,
+            error: getClerkErrorMessage(verifyError, "Invalid verification code."),
+          };
+        }
+
+        if (signUp.status === "complete") {
+          await signUp.finalize({ navigate: navigateAfterAuth });
+          return { ok: true as const };
+        }
+
+        return {
+          ok: false as const,
+          error: "Verification is incomplete. Please try again.",
+        };
+      }
+
+      const { error: verifyError } = await signIn.mfa.verifyEmailCode({ code });
+
+      if (verifyError) {
+        return {
+          ok: false as const,
+          error: getClerkErrorMessage(verifyError, "Invalid verification code."),
+        };
+      }
+
+      if (signIn.status === "complete") {
+        await signIn.finalize({ navigate: navigateAfterAuth });
+        return { ok: true as const };
+      }
+
+      return {
+        ok: false as const,
+        error: "Verification is incomplete. Please try again.",
+      };
+    } catch (err) {
+      return {
+        ok: false as const,
+        error: getClerkErrorMessage(err, "Verification failed. Please try again."),
+      };
+    }
   }
 
   return (
@@ -352,18 +678,38 @@ export function AuthScreen({ mode }: AuthScreenProps) {
               email={email}
               password={password}
               passwordVisible={passwordVisible}
-              onEmailChange={setEmail}
-              onPasswordChange={setPassword}
+              error={displayedError}
+              loading={loading || signUpFetchStatus === "fetching"}
+              googleLoading={googleLoading}
+              appleLoading={appleLoading}
+              onEmailChange={(value) => {
+                setEmail(value);
+                setError(null);
+              }}
+              onPasswordChange={(value) => {
+                setPassword(value);
+                setError(null);
+              }}
               onTogglePassword={() => setPasswordVisible((prev) => !prev)}
               onSubmit={handlePrimaryPress}
+              onGooglePress={handleGooglePress}
+              onApplePress={handleApplePress}
             />
           ) : (
             <SignInContent
               email={email}
               password={password}
               passwordVisible={passwordVisible}
-              onEmailChange={setEmail}
-              onPasswordChange={setPassword}
+              error={displayedError}
+              loading={loading || signInFetchStatus === "fetching"}
+              onEmailChange={(value) => {
+                setEmail(value);
+                setError(null);
+              }}
+              onPasswordChange={(value) => {
+                setPassword(value);
+                setError(null);
+              }}
               onTogglePassword={() => setPasswordVisible((prev) => !prev)}
               onSubmit={handlePrimaryPress}
             />
@@ -375,6 +721,7 @@ export function AuthScreen({ mode }: AuthScreenProps) {
         visible={showVerification}
         email={email.trim()}
         onClose={() => setShowVerification(false)}
+        onVerifyCode={handleVerifyCode}
       />
     </SafeAreaView>
   );

@@ -1,4 +1,3 @@
-import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -10,12 +9,13 @@ import {
   View,
 } from "react-native";
 
-import { verifyEmailCode } from "@/lib/auth";
+type VerificationResult = { ok: true } | { ok: false; error: string };
 
 type VerificationModalProps = {
   visible: boolean;
   email: string;
   onClose: () => void;
+  onVerifyCode: (code: string) => Promise<VerificationResult>;
 };
 
 const CODE_LENGTH = 6;
@@ -24,21 +24,26 @@ export function VerificationModal({
   visible,
   email,
   onClose,
+  onVerifyCode,
 }: VerificationModalProps) {
-  const router = useRouter();
   const inputRef = useRef<TextInput>(null);
   const isVerifyingRef = useRef(false);
+  const sessionTokenRef = useRef(0);
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (visible) {
-      setCode("");
-      setError(null);
-      isVerifyingRef.current = false;
-      const timer = setTimeout(() => inputRef.current?.focus(), 350);
-      return () => clearTimeout(timer);
+    sessionTokenRef.current += 1;
+    isVerifyingRef.current = false;
+
+    if (!visible) {
+      return;
     }
+
+    setCode("");
+    setError(null);
+    const timer = setTimeout(() => inputRef.current?.focus(), 350);
+    return () => clearTimeout(timer);
   }, [visible]);
 
   async function handleChange(value: string) {
@@ -50,21 +55,31 @@ export function VerificationModal({
       return;
     }
 
+    const attemptToken = sessionTokenRef.current;
     isVerifyingRef.current = true;
 
     try {
-      const result = await verifyEmailCode(digits, email);
+      const result = await onVerifyCode(digits);
+
+      if (attemptToken !== sessionTokenRef.current) {
+        return;
+      }
 
       if (result.ok) {
-        router.replace("/");
         return;
       }
 
       setError(result.error);
     } catch {
+      if (attemptToken !== sessionTokenRef.current) {
+        return;
+      }
+
       setError("Verification failed. Please try again.");
     } finally {
-      isVerifyingRef.current = false;
+      if (attemptToken === sessionTokenRef.current) {
+        isVerifyingRef.current = false;
+      }
     }
   }
 
