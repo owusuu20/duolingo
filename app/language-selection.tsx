@@ -15,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { images } from "@/constants/images";
 import { LANGUAGES } from "@/data/languages";
+import { useLanguageStore } from "@/store/language";
 import { colors } from "@/theme";
 import type { Language, LanguageCode } from "@/types/learning";
 
@@ -77,9 +78,15 @@ function LanguageRow({
 export default function LanguageSelectionScreen() {
   const router = useRouter();
   const { width: screenWidth } = useWindowDimensions();
+  const storedLanguageCode = useLanguageStore(
+    (state) => state.selectedLanguageCode,
+  );
+  const setSelectedLanguage = useLanguageStore(
+    (state) => state.setSelectedLanguage,
+  );
   const [query, setQuery] = useState("");
   const [selectedCode, setSelectedCode] = useState<LanguageCode>(
-    LANGUAGES[0]?.code ?? "es",
+    storedLanguageCode ?? LANGUAGES[0]?.code ?? "es",
   );
 
   const filteredLanguages = useMemo(() => {
@@ -104,12 +111,7 @@ export default function LanguageSelectionScreen() {
       return;
     }
 
-    // Selection persistence lands in the Zustand step; UI confirms for now.
-    if (router.canGoBack()) {
-      router.back();
-      return;
-    }
-
+    setSelectedLanguage(selectedLanguage.code);
     router.replace("/");
   };
 
